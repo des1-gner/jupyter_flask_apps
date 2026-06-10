@@ -1,0 +1,79 @@
+import sys
+import subprocess
+import time
+import os
+from IPython.display import display, HTML
+
+# Install jupyter-server-proxy if not already there
+!pip install -q jupyter-server-proxy
+
+# Configure Jupyter Server Proxy
+config_path = os.path.expanduser("~/.jupyter/jupyter_notebook_config.py")
+!mkdir -p ~/.jupyter
+with open(config_path, 'w') as f:
+    f.write("""
+c.ServerProxy.servers = {
+    'flask': {
+        'command': ['python', 'app.py'],
+        'port': 8050,
+        'timeout': 60
+    }
+}
+""")
+
+!jupyter server extension enable --py jupyter_server_proxy 2>/dev/null || jupyter serverextension enable --py jupyter_server_proxy 2>/dev/null || echo "Extension configured"
+
+# Kill any existing process on port 8050
+!fuser -k 8050/tcp 2>/dev/null || true
+
+# Launch Flask app in background
+subprocess.Popen(
+    [sys.executable, 'app.py'],
+    stdout=open('flask.log', 'w'),
+    stderr=open('flask.log', 'w')
+)
+
+# Wait for app to start
+time.sleep(2)
+
+# Display just the proxy URLs
+display(HTML('''
+<div id="flask_urls" style="margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px;">
+    <h3 style="margin-top: 0;">Flask App URLs:</h3>
+    <div id="proxy_urls">Detecting proxy URLs...</div>
+</div>
+
+<script>
+(function() {
+    try {
+        var currentUrl = window.location.href;
+        
+        // Determine base URL for SageMaker
+        var baseUrl;
+        if (currentUrl.includes('/lab')) {
+            baseUrl = currentUrl.split('/lab')[0];
+        } else if (currentUrl.includes('/jupyterlab')) {
+            baseUrl = currentUrl.split('/jupyterlab')[0];
+        } else {
+            baseUrl = currentUrl.replace(/\/[^\/]*$/, '');
+        }
+        
+        // Create both proxy URLs
+        var sagemakerProxyUrl = baseUrl + '/proxy/8050/';
+        var jupyterProxyUrl = baseUrl + '/flask/';
+        
+        // Display the URLs
+        document.getElementById('proxy_urls').innerHTML = 
+            '<p><b>SageMaker built-in proxy:</b><br>' +
+            '<a href="' + sagemakerProxyUrl + '" target="_blank">' + sagemakerProxyUrl + '</a></p>' +
+            '<p><b>Jupyter server proxy:</b><br>' +
+            '<a href="' + jupyterProxyUrl + '" target="_blank">' + jupyterProxyUrl + '</a>' +
+            '<br><small>(Requires restart of Jupyter server)</small></p>';
+            
+    } catch (error) {
+        document.getElementById('proxy_urls').innerHTML = 
+            '<p>Error detecting proxy URLs.</p>';
+    }
+})();
+</script>
+'''))
